@@ -313,6 +313,53 @@ All persistent files are loaded/saved on each call — no in-memory caching laye
 
 ## Environment variables (`.env`)
 
+## Bundler Detection (token.js)
+
+Two signals used in `getTokenHolders()`:
+- `common_funder` — multiple wallets funded by same source
+- `funded_same_window` — multiple wallets funded in same time window
+
+**Thresholds in config**: `maxBundlersPct` (default 30%), `maxTop10Pct` (default 60%)
+Jupiter audit API: `botHoldersPercentage` (5–25% is normal for legitimate tokens)
+
+---
+
+## Base Fee Calculation (dlmm.js)
+
+Read from pool object at deploy time:
+```js
+const baseFactor = pool.lbPair.parameters?.baseFactor ?? 0;
+const actualBaseFee = baseFactor > 0
+  ? parseFloat((baseFactor * actualBinStep / 1e6 * 100).toFixed(4))
+  : null;
+```
+
+---
+
+## Model Configuration
+
+- Default model: `process.env.LLM_MODEL` or `openrouter/healer-alpha`
+- Fallback on 502/503/529: `stepfun/step-3.5-flash:free` (2nd attempt), then retry
+- Per-role models: `managementModel`, `screeningModel`, `generalModel` in user-config.json
+- LM Studio: set `LLM_BASE_URL=http://localhost:1234/v1` and `LLM_API_KEY=***
+- `maxOutputTokens` minimum: 2048 (free models may have lower limits causing empty responses)
+
+---
+
+## Lessons System
+
+`lessons.js` records closed position performance and auto-derives lessons. Key points:
+- `getLessonsForPrompt({ agentType })` — injects relevant lessons into system prompt
+- `evolveThresholds()` — adjusts screening thresholds based on winners vs losers
+- Performance recorded via `recordPerformance()` called from executor.js after `close_position`
+- **FIXED** (2026-06-03): `evolveThresholds()` previously referenced `maxVolatility` and `minFeeTvlRatio` (wrong keys). Now uses correct config keys.
+
+---
+
+## HiveMind
+
+Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent Meridian defaults unless overridden by config or env.
+
 | Var | Required | Purpose |
 |---|---|---|
 | `WALLET_PRIVATE_KEY` | yes | Base58 (or JSON array) |
@@ -433,3 +480,5 @@ When scheduling work, follow the **`_busy` flag + cooldown** pattern. `_manageme
 - Changing deploy/close behavior → `tools/dlmm.js` (the SDK wrapper) and `tools/executor.js` (the post-tool side effects + Telegram notify + auto-swap).
 - Discord listener issues → `discord-listener/pre-checks.js`.
 - HiveMind protocol issues → `hivemind.js` (push side) and `lessons.js#getLessonsForPrompt` (pull side injection).
+- `lessons.js evolveThresholds()` — **FIXED**: now uses correct config keys
+- `get_wallet_positions` tool (dlmm.js) is in definitions.js but not in MANAGER_TOOLS or SCREENER_TOOLS — only available in GENERAL role.

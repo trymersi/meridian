@@ -8,6 +8,7 @@
 
 import fs from "fs";
 import { log } from "./logger.js";
+import { config } from "./config.js";
 import { getSharedLessonsForPrompt, pushHiveLesson, pushHivePerformanceEvent } from "./hivemind.js";
 import { repoPath } from "./repo-root.js";
 
@@ -184,8 +185,8 @@ export async function recordPerformance(perf) {
     });
   }
 
-  // Evolve thresholds every 5 closed positions
-  if (data.performance.length % MIN_EVOLVE_POSITIONS === 0) {
+  const recalcEvery = config?.darwin?.recalcEvery ?? MIN_EVOLVE_POSITIONS;
+  if (data.performance.length % recalcEvery === 0) {
     const { config, reloadScreeningThresholds } = await import("./config.js");
     const result = evolveThresholds(data.performance, config);
     if (result?.changes && Object.keys(result.changes).length > 0) {
@@ -331,7 +332,7 @@ function derivLesson(perf) {
  * @returns {{ changes: Object, rationale: Object } | null}
  */
 export function evolveThresholds(perfData, config) {
-  if (!perfData || perfData.length < MIN_EVOLVE_POSITIONS) return null;
+  if (!perfData || perfData.length < (config?.darwin?.minSamples ?? 5)) return null;
 
   const winners = perfData.filter((p) => p.pnl_pct > 0);
   const losers  = perfData.filter((p) => p.pnl_pct < -5);

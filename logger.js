@@ -26,8 +26,8 @@ export function log(category, message) {
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] [${category.toUpperCase()}] ${message}`;
 
-  // Console output
-  console.log(line);
+  // Console output (stderr so JSON stdout stays clean for piping)
+  process.stderr.write(line + "\n");
 
   // File output (daily rotation)
   const dateStr = timestamp.split("T")[0];

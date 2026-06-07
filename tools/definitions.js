@@ -1111,6 +1111,50 @@ Blacklisted tokens are filtered BEFORE the LLM even sees pool candidates.`,
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "add_dumper_wallet",
+      description: `Register a wallet as a known mastermind dumper (from Hermes/GMGN forensic pipeline).
+These wallets are tracked so the agent can SKIP pools where dumper wallets appear as top holders or deployers.
+Wallets flagged by Hermes' GMGN forensic scan. Use when a coordinated dumper ring is identified.`,
+      parameters: {
+        type: "object",
+        properties: {
+          wallet:  { type: "string", description: "Dumper wallet address (base58)" },
+          label:   { type: "string", description: "Short label (e.g. 'FHC ring', 'coordinated dumper')" },
+          reason:  { type: "string", description: "Why this wallet is a dumper — what did they do?" },
+          source:  { type: "string", description: "Data source: 'hermes-gmgn' or 'manual'" },
+        },
+        required: ["wallet"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_dumper_wallets",
+      description: "List all registered dumper wallets with their labels and reasons.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_dumper_wallet",
+      description: "Remove a wallet from the dumper list.",
+      parameters: {
+        type: "object",
+        properties: {
+          wallet: { type: "string", description: "Wallet address to remove" },
+        },
+        required: ["wallet"]
+      }
+    }
+  },
 ];
 
 export const tools = toolDefinitions.map((tool) => ({

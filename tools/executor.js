@@ -18,6 +18,7 @@ import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
 import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-blacklist.js";
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
+import { addDumperWallet, removeDumperWallet, listDumperWallets } from "../dumper-wallets.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
 import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW } from "../config.js";
@@ -311,6 +312,9 @@ const toolMap = {
   block_deployer: blockDev,
   unblock_deployer: unblockDev,
   list_blocked_deployers: listBlockedDevs,
+  add_dumper_wallet: addDumperWallet,
+  list_dumper_wallets: listDumperWallets,
+  remove_dumper_wallet: removeDumperWallet,
   add_lesson: ({ rule, tags, pinned, role }) => {
     addLesson(rule, tags || [], { pinned: !!pinned, role: role || null });
     return { saved: true, rule, pinned: !!pinned, role: role || "all" };

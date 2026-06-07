@@ -1,0 +1,22 @@
+{
+  "wallets": {
+    "FakckxEr9U29sWK7s3PNiit8c23xTi7XspbvB4nfLQih": {
+      "label": "FHC ring",
+      "reason": "Coordinated dump in 49s across 3+ tokens (USDUCUP/DINEX/UNCCUP). -39.5% loss pattern. Funded CQTc3FxS.",
+      "added_at": "2026-06-07T12:29:01.460Z",
+      "source": "hermes-gmgn"
+    },
+    "HV4cjkteGZ5g9HywDrM1HPC9f95PS9upzvH3MmgPfs53": {
+      "label": "FHC ring",
+      "reason": "Coordinated dump. Funded by 7Wzqp4t8FyH. Appears with FakckxEr+CQTc3FxS in all dumps. -39.6% loss.",
+      "added_at": "2026-06-07T12:29:01.462Z",
+      "source": "hermes-gmgn"
+    },
+    "CQTc3FxSukLQQUseN4RqxRCLRNWxuQXUyCNFH9GQsfKo": {
+      "label": "FHC ring",
+      "reason": "Coordinated dump. FUNDED BY FakckxEr (confirmed same operator). Appears in all dumps. -38.7% loss.",
+      "added_at": "2026-06-07T12:29:01.463Z",
+      "source": "hermes-gmgn"
+    }
+  }
+}
