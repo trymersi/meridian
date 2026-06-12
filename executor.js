@@ -628,7 +628,6 @@ export async function executeTool(name, args) {
           pnlUsd: result.pnl_usd ?? 0,
           pnlPct: result.pnl_pct ?? 0,
           feeSol: result.fees_earned_sol ?? result.total_fees_claimed_sol ?? null,
-          feeUsd: result.fees_earned_usd ?? null,
           closeReason: args.reason || null,
           durationMin: result.minutes_held ?? null,
           inRangePct: result.in_range_pct ?? null,

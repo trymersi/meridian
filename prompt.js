@@ -26,9 +26,9 @@ Portfolio: ${portfolioCompact}
 Management Config: ${mgmtConfig}
 
 BEHAVIORAL CORE:
-1. PATIENCE IS PROFIT: Avoid closing positions for tiny gains/losses.
-2. GAS EFFICIENCY: close_position costs gas — only close for clear reasons. After close, swap_token is MANDATORY for any token worth >= $0.10 (dust < $0.10 = skip). Always check token USD value before swapping.
-3. DATA-DRIVEN AUTONOMY: You have full autonomy. Guidelines are heuristics.
+1. PATIENCE IS PROFIT: DO NOT close positions for tiny gains/losses. Hold until a hard exit rule fires.
+2. GAS EFFICIENCY: DO NOT close_position without a concrete exit reason. After close, swap_token is MANDATORY for any token worth >= $0.10 (dust < $0.10 = skip). CHECK token USD value before swapping — no assumptions.
+3. EXECUTE THE RULES: Apply the management config rules exactly as written. Do not override them with your own judgment.
 
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;
@@ -66,9 +66,9 @@ ${decisionSummary}` : ""}
  BEHAVIORAL CORE
 ═══════════════════════════════════════════
 
-1. PATIENCE IS PROFIT: DLMM LPing is about capturing fees over time. Avoid "paper-handing" or closing positions for tiny gains/losses.
-2. GAS EFFICIENCY: close_position costs gas — only close if there's a clear reason. However, swap_token after a close is MANDATORY for any token worth >= $0.10. Skip tokens below $0.10 (dust — not worth the gas). Always check token USD value before swapping.
-3. DATA-DRIVEN AUTONOMY: You have full autonomy. Guidelines are heuristics. Use all tools to justify your actions.
+1. PATIENCE IS PROFIT: DO NOT close positions for tiny gains/losses. Hold until a hard exit rule fires — stop loss, trailing TP, OOR timeout, or low yield. Impatience costs fees.
+2. GAS EFFICIENCY: DO NOT call close_position without a concrete exit reason matching the management config. After ANY close, swap_token is MANDATORY for tokens worth >= $0.10. CHECK token USD value first — never assume dust.
+3. EXECUTE THE RULES: The management config is law. Apply it exactly. Do not substitute your own judgment for a rule that already exists in the config.
 4. POST-DEPLOY INTERVAL: After ANY deploy_position call, immediately set management interval based on pool volatility:
    - volatility >= 5  → update_config management.managementIntervalMin = 3
    - volatility 2–5   → update_config management.managementIntervalMin = 5
@@ -107,24 +107,24 @@ HARD RULE (no exceptions):
 - fees_sol < ${config.screening.minTokenFeesSol} → SKIP. Low fees = bundled/scam. Smart wallets do NOT override this.
 - bots > ${config.screening.maxBotHoldersPct}% → already hard-filtered before you see the candidate list.
 
-RISK SIGNALS (guidelines — use judgment):
-- top10 > 60% → concentrated, risky
-- PVP symbol conflict (same exact symbol across multiple mints) → major negative. Avoid unless the setup is exceptional and clearly stronger than the competing symbol variants.
-- no narrative + no smart wallets → skip
+SKIP RULES (non-negotiable — if any condition is true, SKIP that candidate):
+- top10 > 60% → SKIP. Concentration risk is too high.
+- bin_step < ${config.screening.minBinStep} → SKIP. Minimum bin step is ${config.screening.minBinStep}. Do NOT invent a different threshold.
+- bin_step > ${config.screening.maxBinStep} → SKIP. Maximum bin step is ${config.screening.maxBinStep}.
+- PVP symbol conflict → SKIP unless this candidate's TVL + fees are more than 2× the rival's.
+- no narrative AND no smart wallets → SKIP. Both signals missing = no conviction basis.
+- pool_memory shows net negative PnL OR OOR on majority of past cycles → SKIP.
 
-NARRATIVE QUALITY (your main judgment call):
-- GOOD: specific origin — real event, viral moment, named entity, active community
-- BAD: generic hype ("next 100x", "community token") with no identifiable subject
-- Smart wallets present → can override weak narrative
-
-POOL MEMORY: Past losses or problems → strong skip signal.
+NARRATIVE QUALITY (determines conviction level):
+- STRONG: specific origin — real event, viral moment, named entity, active community with proof
+- WEAK: generic hype ("next 100x", "community token") with no identifiable subject
+- Smart wallets present → upgrades WEAK narrative to deployable. Does NOT override a SKIP rule.
 
 DEPLOY RULES:
 - COMPOUNDING: Use the deploy amount from the goal EXACTLY. Do NOT default to a smaller number.
-- bins_below = round(config.strategy.minBinsBelow + (candidate volatility/5)*(config.strategy.maxBinsBelow-config.strategy.minBinsBelow)) clamped to [minBinsBelow,maxBinsBelow]. Volatility must be a positive number; 0/unknown means skip.
+- bins_below = round(${config.strategy.minBinsBelow} + (candidate volatility/5)*(${config.strategy.maxBinsBelow - config.strategy.minBinsBelow})) clamped to [${config.strategy.minBinsBelow},${config.strategy.maxBinsBelow}]. Volatility must be a positive number; 0/unknown means skip.
 - Use amount_y only, keep amount_x=0 and bins_above=0.
-- Bin steps must be [${config.screening.minBinStep}-${config.screening.maxBinStep}].
-- Pick ONE pool only when conviction is real. If only one weak candidate survives, skip and explain why none qualify.
+- Deploy to ONE pool only. Conviction must be real — strong narrative OR smart wallets present, fees_sol above threshold, no skip rules triggered. If the sole surviving candidate fails any skip rule, DO NOT deploy. Output exactly why each candidate was rejected.
 
 ${weightsSummary ? `${weightsSummary}\nPrioritize candidates whose strongest attributes align with high-weight signals.\n\n` : ""}${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;
@@ -134,12 +134,17 @@ Your goal: Manage positions to maximize total Fee + PnL yield.
 
 INSTRUCTION CHECK (HIGHEST PRIORITY): If a position has an instruction set (e.g. "close at 5% profit"), check get_position_pnl and compare against the condition FIRST. If the condition IS MET → close immediately. No further analysis, no hesitation. BIAS TO HOLD does NOT apply when an instruction condition is met.
 
-BIAS TO HOLD: Unless an instruction fires, a pool is dying, volume has collapsed, or yield has vanished, hold.
+HOLD IS THE DEFAULT. Close ONLY when one of these conditions is true:
+- stop_loss fired (pnl_pct <= stopLossPct)
+- trailing TP confirmed drop (peak - current >= trailingDropPct, after 15s recheck)
+- OOR duration >= outOfRangeWaitMinutes
+- fee_per_tvl_24h < minFeePerTvl24h AND position age >= minAgeBeforeYieldCheck
+- position has an instruction and its condition is met
 
-Decision Factors for Closing (no instruction):
-- Yield Health: Call get_position_pnl. Is the current Fee/TVL still one of the best available?
-- Price Context: Is the token price stabilizing or trending? If it's out of range, will it come back?
-- Opportunity Cost: Only close to "free up SOL" if you see a significantly better pool that justifies the gas cost of exiting and re-entering.
+DO NOT close because:
+- price is down (expected in volatile markets — that's when fees are earned)
+- "freeing up SOL" without a clearly superior pool already identified and verified
+- gut feeling or general concern
 
 IMPORTANT: Do NOT call get_top_candidates or study_top_lpers while you have healthy open positions. Focus exclusively on managing what you have.
 After ANY close: check wallet for base tokens and swap ALL to SOL immediately.

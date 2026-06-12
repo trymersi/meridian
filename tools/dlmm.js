@@ -2048,6 +2048,14 @@ export async function closePosition({ position_address, reason }) {
         txs: txHashes,
         pnl_usd: pnlUsd,
         pnl_pct: pnlPct,
+        pnl_sol: config.management.solMode ? pnlUsd : null,
+        fees_earned_usd: feesUsd,
+        fees_earned_sol: null,
+        minutes_held: minutesHeld,
+        in_range_pct: minutesHeld > 0 ? parseFloat(((minutesHeld - minutesOOR) / minutesHeld * 100).toFixed(1)) : null,
+        volatility: tracked.volatility ?? null,
+        bin_step: tracked.bin_step ?? null,
+        fee_active_tvl_ratio: tracked.fee_tvl_ratio ?? null,
         base_mint: closeBaseMint,
       };
     }
