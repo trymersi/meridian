@@ -17,6 +17,18 @@
       "reason": "Coordinated dump. FUNDED BY FakckxEr (confirmed same operator). Appears in all dumps. -38.7% loss.",
       "added_at": "2026-06-07T12:29:01.463Z",
       "source": "hermes-gmgn"
+    },
+    "9iaawVBEsFG35PSwd4PahwT8fYNQe9XYuRdWm872dUqY": {
+      "label": "Serial launcher/dumper",
+      "reason": "Creator of bounty (EXWpAd19...). 43 tokens history, ATH $1.3M. Dumped bounty +132% profit ($437). Tagged creator+KOL+bundler. Funded from Binance. Pattern: launch→pump→dump across multiple tokens.",
+      "added_at": "2026-06-08T13:30:00.000Z",
+      "source": "hermes-gmgn"
+    },
+    "2HGKwXJVqySfbatGUeeMuD7ztiQhveGPTVorh9aASGXB": {
+      "label": "Dev team insider",
+      "reason": "Dev team insider on bounty (EXWpAd19...). Fresh wallet (3 days old). Bought at launch, dumped +67% ($300 profit) in first minute. Tagged dev_team+bundler. Classic insider dump pattern.",
+      "added_at": "2026-06-08T13:30:00.000Z",
+      "source": "hermes-gmgn"
     }
   }
 }

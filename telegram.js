@@ -157,9 +157,21 @@ export async function sendMessageWithButtons(text, inlineKeyboard) {
   });
 }
 
+async function safeTelegramHTML(method, body) {
+  try {
+    return await postTelegram(method, body);
+  } catch (err) {
+    if (err?.message?.includes("can't parse entities")) {
+      delete body.parse_mode;
+      return postTelegram(method, body);
+    }
+    throw err;
+  }
+}
+
 export async function sendHTML(html) {
   if (!TOKEN || !chatId) return;
-  return postTelegram("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
+  return safeTelegramHTML("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
 }
 
 export async function editMessage(text, messageId) {
@@ -296,12 +308,13 @@ export async function createLiveMessage(title, intro = "Starting...") {
     state.flushTimer = null;
     state.flushRequested = false;
     const text = render();
+    const trimmed = text.slice(0, 4096);
     if (!state.messageId) {
-      const sent = await postTelegram("sendMessage", { text: text.slice(0, 4096), parse_mode: "HTML" });
+      const sent = await safeTelegramHTML("sendMessage", { text: trimmed, parse_mode: "HTML" });
       state.messageId = sent?.result?.message_id ?? null;
       return;
     }
-    await postTelegram("editMessageText", { message_id: state.messageId, text: text.slice(0, 4096), parse_mode: "HTML" });
+    await safeTelegramHTML("editMessageText", { message_id: state.messageId, text: trimmed, parse_mode: "HTML" });
   }
 
   function scheduleFlush(delay = 300) {
