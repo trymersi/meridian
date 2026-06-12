@@ -289,26 +289,53 @@ export async function runManagementCycle({ silent = false } = {}) {
 
     const reportLines = positionData.map((p) => {
       const act = actionMap.get(p.position);
+      const cur = config.management.solMode ? "◎" : "$";
       const inRange = p.in_range ? "🟢 IN" : `🔴 OOR ${p.minutes_out_of_range ?? 0}m`;
-      const val = config.management.solMode ? `◎${p.total_value_usd ?? "?"}` : `$${p.total_value_usd ?? "?"}`;
-      const unclaimed = config.management.solMode ? `◎${p.unclaimed_fees_usd ?? "?"}` : `$${p.unclaimed_fees_usd ?? "?"}`;
-      const statusLabel = act.action === "INSTRUCTION" ? "HOLD (instruction)" : act.action;
-      let line = `**${p.pair}** | Age: ${p.age_minutes ?? "?"}m | Val: ${val} | Unclaimed: ${unclaimed} | PnL: ${p.pnl_pct ?? "?"}% | Yield: ${p.fee_per_tvl_24h ?? "?"}% | ${inRange} | ${statusLabel}`;
-      if (p.instruction) line += `\nNote: "${p.instruction}"`;
-      if (act.action === "CLOSE" && act.rule === "exit") line += `\n⚡ Trailing TP: ${act.reason}`;
-      if (act.action === "CLOSE" && act.rule && act.rule !== "exit") line += `\nRule ${act.rule}: ${act.reason}`;
-      if (act.action === "CLAIM") line += `\n→ Claiming fees`;
+
+      const pnlSign = (p.pnl_pct ?? 0) >= 0 ? "+" : "";
+      const pnlIcon = (p.pnl_pct ?? 0) >= 0 ? "📈" : "📉";
+      const pnlStr = `${pnlSign}${p.pnl_pct ?? "?"}%${p.pnl_usd != null ? ` (${pnlSign}${cur}${Math.abs(p.pnl_usd).toFixed(2)})` : ""}`;
+      const peakStr = p.peak_pnl_pct != null ? ` | peak: ${p.peak_pnl_pct >= 0 ? "+" : ""}${p.peak_pnl_pct}%` : "";
+
+      const unclaimedStr = `${cur}${(p.unclaimed_fees_usd ?? 0).toFixed(4)}`;
+      const claimedStr = p.total_fees_claimed_usd != null && Number(p.total_fees_claimed_usd) > 0
+        ? ` | claimed: ${cur}${Number(p.total_fees_claimed_usd).toFixed(2)}`
+        : "";
+
+      const metaParts = [
+        p.fee_per_tvl_24h != null ? `yield: ${p.fee_per_tvl_24h}%` : null,
+        p.bin_step != null ? `step=${p.bin_step}` : null,
+        p.strategy || null,
+      ].filter(Boolean).join(" | ");
+
+      const actionIcon = act.action === "CLOSE" ? "🔴" : act.action === "CLAIM" ? "💰" : act.action === "INSTRUCTION" ? "📋" : "✅";
+      const statusLabel = act.action === "INSTRUCTION" ? "EVAL (instruction)" : act.action;
+
+      let line = [
+        `${actionIcon} <b>${p.pair}</b> | Age: ${p.age_minutes ?? "?"}m | ${inRange}`,
+        `   ${pnlIcon} PnL: ${pnlStr}${peakStr} | Val: ${cur}${(p.total_value_usd ?? 0).toFixed(2)}${p.amount_sol ? ` (dep: ◎${p.amount_sol})` : ""}`,
+        `   💸 Unclaimed: ${unclaimedStr}${claimedStr}`,
+        metaParts ? `   📊 ${metaParts}` : null,
+        `   → ${statusLabel}`,
+      ].filter(Boolean).join("\n");
+
+      if (p.instruction) line += `\n   📌 "${p.instruction}"`;
+      if (act.action === "CLOSE" && act.rule === "exit") line += `\n   ⚡ Trigger: ${act.reason}`;
+      if (act.action === "CLOSE" && act.rule && act.rule !== "exit") line += `\n   📏 Rule ${act.rule}: ${act.reason}`;
+      if (act.action === "CLAIM") line += `\n   💰 Claiming fees`;
       return line;
     });
 
     const needsAction = [...actionMap.values()].filter(a => a.action !== "STAY");
     const actionSummary = needsAction.length > 0
       ? needsAction.map(a => a.action === "INSTRUCTION" ? "EVAL instruction" : `${a.action}${a.reason ? ` (${a.reason})` : ""}`).join(", ")
-      : "no action";
+      : "✅ no action";
 
     const cur = config.management.solMode ? "◎" : "$";
+    const totalPnlUsd = positionData.reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
+    const pnlSummarySign = totalPnlUsd >= 0 ? "+" : "";
     mgmtReport = reportLines.join("\n\n") +
-      `\n\nSummary: 💼 ${positions.length} positions | ${cur}${totalValue.toFixed(4)} | fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
+      `\n\n💼 <b>${positions.length} position(s)</b> | Val: ${cur}${totalValue.toFixed(2)} | PnL: ${pnlSummarySign}${cur}${Math.abs(totalPnlUsd).toFixed(2)} | Fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
 
     // ── Call LLM only if action needed ──────────────────────────────
     const actionPositions = positionData.filter(p => {
@@ -370,7 +397,7 @@ After executing, write a brief one-line result per position.
     if (!silent && telegramEnabled()) {
       if (mgmtReport) {
         if (liveMessage) await liveMessage.finalize(stripThink(mgmtReport)).catch(() => {});
-        else sendMessage(`🔄 Management Cycle\n\n${stripThink(mgmtReport)}`).catch(() => { });
+        else sendHTML(`🔄 <b>Management Cycle</b>\n\n${stripThink(mgmtReport)}`).catch(() => { });
       }
       for (const p of positions) {
         if (!p.in_range && p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {

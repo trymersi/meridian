@@ -297,11 +297,11 @@ export async function createLiveMessage(title, intro = "Starting...") {
     state.flushRequested = false;
     const text = render();
     if (!state.messageId) {
-      const sent = await sendMessage(text);
+      const sent = await postTelegram("sendMessage", { text: text.slice(0, 4096), parse_mode: "HTML" });
       state.messageId = sent?.result?.message_id ?? null;
       return;
     }
-    await editMessage(text, state.messageId);
+    await postTelegram("editMessageText", { message_id: state.messageId, text: text.slice(0, 4096), parse_mode: "HTML" });
   }
 
   function scheduleFlush(delay = 300) {
@@ -461,35 +461,70 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
-export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee }) {
+export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee, strategy, volatility }) {
   if (hasActiveLiveMessage()) return;
   const priceStr = priceRange
-    ? `Price range: ${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)} – ${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}\n`
+    ? `📐 Range: ${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)} → ${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}\n`
     : "";
   const coverageStr = rangeCoverage
-    ? `Range cover: ${fmtPct(rangeCoverage.downside_pct)} downside | ${fmtPct(rangeCoverage.upside_pct)} upside | ${fmtPct(rangeCoverage.width_pct)} total\n`
+    ? `📏 Cover: ${fmtPct(rangeCoverage.downside_pct)} down | ${fmtPct(rangeCoverage.upside_pct)} up | ${fmtPct(rangeCoverage.width_pct)} total\n`
     : "";
-  const poolStr = (binStep || baseFee)
-    ? `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`
+  const metaStr = (binStep || baseFee || volatility || strategy)
+    ? `📊 Meta: ${strategy ? `${strategy} | ` : ""}step = ${binStep ?? "?"} | fee = ${baseFee != null ? baseFee + "%" : "?"} | vol = ${volatility != null ? Number(volatility).toFixed(2) : "?"}\n`
     : "";
   await sendHTML(
-    `✅ <b>Deployed</b> ${pair}\n` +
-    `Amount: ${amountSol} SOL\n` +
+    `🚀 <b>DEPLOYED | ${pair}</b>\n` +
+    `◎ <b>${amountSol} SOL</b>\n` +
     priceStr +
     coverageStr +
-    poolStr +
-    `Position: <code>${position?.slice(0, 8)}...</code>\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
+    metaStr +
+    `🔑 <code>${position?.slice(0, 8)}...</code>`
   );
 }
 
-export async function notifyClose({ pair, pnlUsd, pnlPct }) {
+export async function notifyClose({ pair, pnlSol, pnlUsd, pnlPct, feeSol, feeUsd, closeReason, durationMin, inRangePct, volatility, binStep, feeActiveTvlRatio }) {
   if (hasActiveLiveMessage()) return;
-  const sign = pnlUsd >= 0 ? "+" : "";
-  await sendHTML(
-    `🔒 <b>Closed</b> ${pair}\n` +
-    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
-  );
+  const win = (pnlPct ?? 0) >= 0;
+  const pnlIcon = win ? "✅" : "❌";
+  const header = win ? "🟢" : "🔴";
+  const sign = win ? "+" : "";
+
+  const pnlSolStr = pnlSol != null
+    ? `◎${Math.abs(pnlSol).toFixed(4)} (${sign}${(pnlPct ?? 0).toFixed(2)}%) ${pnlIcon}`
+    : `${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%) ${pnlIcon}`;
+  const feeStr = feeSol != null
+    ? `◎${Number(feeSol).toFixed(4)}`
+    : feeUsd != null
+      ? `$${Number(feeUsd).toFixed(4)}`
+      : null;
+  const netUsd = pnlUsd != null && feeUsd != null ? (Number(pnlUsd) + Number(feeUsd)) : null;
+  const netSol = pnlSol != null && feeSol != null ? (Number(pnlSol) + Number(feeSol)) : null;
+  const netStr = netSol != null
+    ? `◎${netSol.toFixed(4)} ${netSol >= 0 ? "✅" : "❌"}`
+    : netUsd != null
+      ? `$${netUsd.toFixed(4)} ${netUsd >= 0 ? "✅" : "❌"}`
+      : null;
+  const durationStr = durationMin != null
+    ? `⏱️ Duration: ${durationMin}m${inRangePct != null ? ` | ${inRangePct}% In-Range 🎯` : ""}`
+    : null;
+  const metaParts = [
+    volatility != null ? `vol = ${Number(volatility).toFixed(2)}` : null,
+    binStep != null ? `step = ${binStep}` : null,
+    feeActiveTvlRatio != null ? `fee/TVL = ${Number(feeActiveTvlRatio).toFixed(1)}%` : null,
+  ].filter(Boolean);
+  const metaStr = metaParts.length ? `📊 ${metaParts.join(" | ")}` : null;
+
+  const lines = [
+    `${header} <b>CLOSED | ${pair}</b>`,
+    `💰 PnL : ${pnlSolStr}`,
+    feeStr  ? `💸 Fees : ${feeStr}` : null,
+    netStr  ? `💵 Net  : ${netStr}` : null,
+    closeReason ? `🤖 Exit : ${closeReason}` : null,
+    durationStr,
+    metaStr,
+  ].filter(Boolean).join("\n");
+
+  await sendHTML(lines);
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
