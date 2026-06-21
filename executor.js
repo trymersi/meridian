@@ -218,6 +218,7 @@ function normalizeConfigValue(key, value) {
     "solMode",
     "darwinEnabled",
     "lpAgentRelayEnabled",
+    "dynamicCooldownEnabled",
   ]);
   const arrayKeys = new Set(["allowedLaunchpads", "blockedLaunchpads"]);
   const stringKeys = new Set([
@@ -383,8 +384,14 @@ const toolMap = {
       repeatDeployCooldownHours: ["management", "repeatDeployCooldownHours"],
       repeatDeployCooldownScope: ["management", "repeatDeployCooldownScope"],
       repeatDeployCooldownMinFeeEarnedPct: ["management", "repeatDeployCooldownMinFeeEarnedPct"],
+      dynamicCooldownEnabled: ["screening", "dynamicCooldownEnabled"],
+      dynamicCooldownEarlyWindowH: ["screening", "dynamicCooldownEarlyWindowH"],
+      dynamicCooldownLateWindowH: ["screening", "dynamicCooldownLateWindowH"],
+      dynamicCooldownEarlyMinH1: ["screening", "dynamicCooldownEarlyMinH1"],
+      dynamicCooldownLateMinH1: ["screening", "dynamicCooldownLateMinH1"],
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],
       stopLossPct: ["management", "stopLossPct"],
+      minAgeBeforeStopLoss: ["management", "minAgeBeforeStopLoss"],
       takeProfitPct: ["management", "takeProfitPct"],
       takeProfitFeePct: ["management", "takeProfitPct"],
       trailingTakeProfit: ["management", "trailingTakeProfit"],

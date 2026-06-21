@@ -242,6 +242,25 @@ export function isBaseMintOnCooldown(baseMint) {
   );
 }
 
+/**
+ * Get the most recent closed_at timestamp for any deploy with the given base_mint.
+ * Used by dynamic cooldown logic in screening.
+ */
+export function getLastCloseTimeForMint(baseMint) {
+  if (!baseMint) return null;
+  const db = load();
+  let lastClose = null;
+  for (const entry of Object.values(db)) {
+    if (entry?.base_mint !== baseMint) continue;
+    for (const d of (entry.deploys || [])) {
+      if (d.closed_at && (!lastClose || d.closed_at > lastClose)) {
+        lastClose = d.closed_at;
+      }
+    }
+  }
+  return lastClose;
+}
+
 // ─── Read ──────────────────────────────────────────────────────
 
 /**

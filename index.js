@@ -97,7 +97,7 @@ const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
-const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
+const TRAILING_DROP_CONFIRM_DELAY_MS = 5_000;
 const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 1.0;
 
 /** Strip <think>...</think> reasoning blocks that some models leak into output */
@@ -337,48 +337,92 @@ export async function runManagementCycle({ silent = false } = {}) {
     mgmtReport = reportLines.join("\n\n") +
       `\n\n💼 <b>${positions.length} position(s)</b> | Val: ${cur}${totalValue.toFixed(2)} | PnL: ${pnlSummarySign}${cur}${Math.abs(totalPnlUsd).toFixed(2)} | Fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
 
-    // ── Call LLM only if action needed ──────────────────────────────
+    // ── Execute actions: direct for CLOSE/CLAIM, LLM only for INSTRUCTION ──
     const actionPositions = positionData.filter(p => {
       const a = actionMap.get(p.position);
       return a.action !== "STAY";
     });
 
-    if (actionPositions.length > 0) {
-      log("cron", `Management: ${actionPositions.length} action(s) needed — invoking LLM [model: ${config.llm.managementModel}]`);
+    const directPositions = actionPositions.filter(p => {
+      const a = actionMap.get(p.position);
+      return a.action === "CLOSE" || a.action === "CLAIM";
+    });
+    const instructionPositions = actionPositions.filter(p => {
+      return actionMap.get(p.position).action === "INSTRUCTION";
+    });
 
-      const actionBlocks = actionPositions.map((p) => {
+    // Direct execution — no LLM, preserves all executor side-effects
+    if (directPositions.length > 0) {
+      log("cron", `Management: ${directPositions.length} direct action(s) — bypassing LLM`);
+      const directLines = [];
+      for (const p of directPositions) {
+        const act = actionMap.get(p.position);
+        if (act.action === "CLOSE") {
+          const closeReason = act.reason || (act.rule ? `Rule ${act.rule}: ${act.reason}` : "deterministic close");
+          log("cron", `[Direct close] ${p.pair} — ${closeReason}`);
+          await liveMessage?.toolStart("close_position");
+          const result = await executeTool("close_position", {
+            position_address: p.position,
+            reason: closeReason,
+          });
+          const ok = result?.success !== false && !result?.error;
+          await liveMessage?.toolFinish("close_position", result, ok);
+          if (ok) {
+            const pnlStr = result.pnl_pct != null ? ` (${result.pnl_pct >= 0 ? "+" : ""}${Number(result.pnl_pct).toFixed(2)}%)` : "";
+            directLines.push(`✅ CLOSE ${p.pair}${pnlStr} — ${closeReason}`);
+          } else {
+            directLines.push(`❌ CLOSE ${p.pair} failed: ${result?.error || "unknown error"}`);
+            log("cron_error", `Direct close failed for ${p.pair}: ${result?.error}`);
+          }
+        } else if (act.action === "CLAIM") {
+          log("cron", `[Direct claim] ${p.pair}`);
+          await liveMessage?.toolStart("claim_fees");
+          const result = await executeTool("claim_fees", { position_address: p.position });
+          const ok = result?.success !== false && !result?.error;
+          await liveMessage?.toolFinish("claim_fees", result, ok);
+          directLines.push(ok
+            ? `✅ CLAIM ${p.pair} — $${(result?.fees_claimed_usd ?? 0).toFixed(2)} claimed`
+            : `❌ CLAIM ${p.pair} failed: ${result?.error || "unknown error"}`
+          );
+        }
+      }
+      mgmtReport += `\n\n${directLines.join("\n")}`;
+    }
+
+    // LLM only for INSTRUCTION (needs condition evaluation)
+    if (instructionPositions.length > 0) {
+      log("cron", `Management: ${instructionPositions.length} INSTRUCTION position(s) — invoking LLM [model: ${config.llm.managementModel}]`);
+      const instructionBlocks = instructionPositions.map((p) => {
         const act = actionMap.get(p.position);
         return [
           `POSITION: ${p.pair} (${p.position})`,
           `  pool: ${p.pool}`,
-          `  action: ${act.action}${act.rule && act.rule !== "exit" ? ` — Rule ${act.rule}: ${act.reason}` : ""}${act.rule === "exit" ? ` — ⚡ Trailing TP: ${act.reason}` : ""}`,
+          `  action: INSTRUCTION`,
           `  pnl_pct: ${p.pnl_pct}% | unclaimed_fees: ${cur}${p.unclaimed_fees_usd} | value: ${cur}${p.total_value_usd} | fee_per_tvl_24h: ${p.fee_per_tvl_24h ?? "?"}%`,
           `  bins: lower=${p.lower_bin} upper=${p.upper_bin} active=${p.active_bin} | oor_minutes: ${p.minutes_out_of_range ?? 0}`,
-          p.instruction ? `  instruction: "${p.instruction}"` : null,
+          `  instruction: "${p.instruction}"`,
         ].filter(Boolean).join("\n");
       }).join("\n\n");
 
       const { content } = await agentLoop(`
-MANAGEMENT ACTION REQUIRED — ${actionPositions.length} position(s)
+INSTRUCTION EVALUATION REQUIRED — ${instructionPositions.length} position(s)
 
-${actionBlocks}
+${instructionBlocks}
 
 RULES:
-- CLOSE: call close_position only — it handles fee claiming internally, do NOT call claim_fees first
-- CLAIM: call claim_fees with position address
 - INSTRUCTION: evaluate the instruction condition. If met → close_position. If not → HOLD, do nothing.
-- ⚡ exit alerts: close immediately, no exceptions
+- Do NOT close without verifying the instruction condition first.
 
-Execute the required actions. Do NOT re-evaluate CLOSE/CLAIM — rules already applied. Just execute.
-After executing, write a brief one-line result per position.
+Evaluate and execute only if condition is met.
       `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel, 2048, {
         onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
         onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
       });
-
       mgmtReport += `\n\n${content}`;
-    } else {
-      log("cron", "Management: all positions STAY — skipping LLM");
+    }
+
+    if (actionPositions.length === 0) {
+      log("cron", "Management: all positions STAY — no actions");
       await liveMessage?.note("No tool actions needed.");
     }
 

@@ -93,10 +93,17 @@ export const config = {
     blockPvpSymbols:   u.blockPvpSymbols   ?? false, // hard-filter PVP rivals before the LLM sees them
     maxBotHoldersPct:  u.maxBotHoldersPct  ?? 30,  // max bot holder addresses % (Jupiter audit)
     maxTop10Pct:       u.maxTop10Pct       ?? 60,  // max top 10 holders concentration
+    maxVolatility:     u.maxVolatility     ?? null, // null = no cap; swarm data suggests 2.8 is safe upper bound
     allowedLaunchpads: u.allowedLaunchpads ?? [],  // allow-list launchpads, [] = no allow-list
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
+    // Dynamic cooldown — re-entry allowed if price momentum is strong enough
+    dynamicCooldownEnabled:      u.dynamicCooldownEnabled      ?? false,
+    dynamicCooldownEarlyWindowH: u.dynamicCooldownEarlyWindowH ?? 6,    // early window end (hours after close)
+    dynamicCooldownLateWindowH:  u.dynamicCooldownLateWindowH  ?? 12,   // late window end (hours after close)
+    dynamicCooldownEarlyMinH1:   u.dynamicCooldownEarlyMinH1   ?? 100,  // min 1h price change % for early window
+    dynamicCooldownLateMinH1:    u.dynamicCooldownLateMinH1    ?? 20,   // min 1h price change % for late window
   },
 
   // ─── Position Management ────────────────
@@ -114,6 +121,7 @@ export const config = {
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
+    minAgeBeforeStopLoss:  u.minAgeBeforeStopLoss  ?? 5,   // minutes before stop loss can trigger (prevents -100% artifact)
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close

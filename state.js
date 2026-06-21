@@ -370,6 +370,7 @@ export function getStateSummary() {
   };
 }
 
+
 /**
  * Check all exit conditions for a position (trailing TP, stop loss, OOR, low yield).
  * Updates peak_pnl_pct, trailing_active, and OOR state.
@@ -419,11 +420,19 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   if (changed) save(state);
 
   // ── Stop loss ──────────────────────────────────────────────────
+  // Guard: skip stop loss for very new positions — Meteora API often returns
+  // -100% PnL right after deploy (data artifact), which would trigger an immediate close.
+  const minAgeBeforeStopLoss = mgmtConfig.minAgeBeforeStopLoss ?? 5;
+  const ageMinutesForSL = positionData.age_minutes ?? 0;
   if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
-    return {
-      action: "STOP_LOSS",
-      reason: `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${mgmtConfig.stopLossPct}%`,
-    };
+    if (ageMinutesForSL < minAgeBeforeStopLoss) {
+      log("state", `Stop loss skipped for ${positionData.pool_name || "?"} — position only ${ageMinutesForSL.toFixed(1)}min old (min ${minAgeBeforeStopLoss}min)`);
+    } else {
+      return {
+        action: "STOP_LOSS",
+        reason: `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${mgmtConfig.stopLossPct}%`,
+      };
+    }
   }
 
   // ── Trailing TP ────────────────────────────────────────────────

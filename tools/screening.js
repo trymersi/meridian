@@ -3,11 +3,12 @@ import { isBlacklisted } from "../token-blacklist.js";
 import { isDevBlocked, getBlockedDevs } from "../dev-blocklist.js";
 import { hasDumper, matchDumpers } from "../dumper-wallets.js";
 import { log } from "../logger.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isPoolOnCooldown, getLastCloseTimeForMint } from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
+const DEXSCREENER_BASE = "https://api.dexscreener.com/latest/dex";
 
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
 const MIN_VOLATILITY_TIMEFRAME = "30m";
@@ -376,6 +377,83 @@ async function refreshDiscordOnlyPools(pools, timeframe) {
 }
 
 /**
+ * Fetch 1h price change for a token mint from DexScreener.
+ * Returns the priceChange object { m5, h1, h6, h24 } or null on failure.
+ */
+async function fetchDexScreenerPriceChange(mint) {
+  try {
+    const res = await fetch(`${DEXSCREENER_BASE}/tokens/${mint}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pairs = Array.isArray(data?.pairs) ? data.pairs : [];
+    // Prefer highest-liquidity Solana pair
+    const sorted = pairs
+      .filter(p => p?.chainId === "solana")
+      .sort((a, b) => Number(b?.liquidity?.usd || 0) - Number(a?.liquidity?.usd || 0));
+    return sorted[0]?.priceChange ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dynamic cooldown check — replaces static isBaseMintOnCooldown when enabled.
+ * Logic: allow re-entry if momentum is strong enough relative to time since last close.
+ *   < 1h after close            → always blocked
+ *   1h – earlyWindowH           → allowed only if 1h price change >= earlyMinH1 %
+ *   earlyWindowH – lateWindowH  → allowed only if 1h price change >= lateMinH1 %
+ *   >= lateWindowH              → blocked (static cooldown should have expired; if not, block)
+ * Returns { blocked: boolean, reason: string }
+ */
+async function checkDynamicCooldown(mint, lastCloseTime, screeningConfig) {
+  const earlyWindowH = Number(screeningConfig.dynamicCooldownEarlyWindowH ?? 6);
+  const lateWindowH  = Number(screeningConfig.dynamicCooldownLateWindowH  ?? 12);
+  const earlyMinH1   = Number(screeningConfig.dynamicCooldownEarlyMinH1   ?? 100);
+  const lateMinH1    = Number(screeningConfig.dynamicCooldownLateMinH1    ?? 20);
+
+  if (!lastCloseTime) {
+    return { blocked: true, reason: "token cooldown active (no close record)" };
+  }
+
+  const hoursAgo = (Date.now() - new Date(lastCloseTime).getTime()) / 3_600_000;
+
+  if (hoursAgo < 1) {
+    return { blocked: true, reason: `token cooldown — closed ${hoursAgo.toFixed(1)}h ago (< 1h min wait)` };
+  }
+
+  const priceChange = await fetchDexScreenerPriceChange(mint);
+  const h1 = priceChange?.h1 ?? null;
+
+  if (hoursAgo < earlyWindowH) {
+    if (h1 != null && h1 >= earlyMinH1) {
+      return { blocked: false, reason: `dynamic cooldown lifted — 1h +${h1.toFixed(1)}% >= ${earlyMinH1}% (${hoursAgo.toFixed(1)}h since close)` };
+    }
+    return {
+      blocked: true,
+      reason: h1 != null
+        ? `token cooldown — 1h ${h1.toFixed(1)}% < ${earlyMinH1}% needed (${hoursAgo.toFixed(1)}h since close)`
+        : `token cooldown — DexScreener unavailable (${hoursAgo.toFixed(1)}h since close)`,
+    };
+  }
+
+  if (hoursAgo < lateWindowH) {
+    if (h1 != null && h1 >= lateMinH1) {
+      return { blocked: false, reason: `dynamic cooldown lifted — 1h +${h1.toFixed(1)}% >= ${lateMinH1}% (${hoursAgo.toFixed(1)}h since close)` };
+    }
+    return {
+      blocked: true,
+      reason: h1 != null
+        ? `token cooldown — 1h ${h1.toFixed(1)}% < ${lateMinH1}% needed (${hoursAgo.toFixed(1)}h since close)`
+        : `token cooldown — DexScreener unavailable (${hoursAgo.toFixed(1)}h since close)`,
+    };
+  }
+
+  return { blocked: true, reason: `token cooldown active (${hoursAgo.toFixed(1)}h since close)` };
+}
+
+/**
  * Fetch pools from the Meteora Pool Discovery API.
  * Returns condensed data optimized for LLM consumption (saves tokens).
  */
@@ -555,6 +633,46 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   const minTvl = Number(config.screening.minTvl ?? 0);
   const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
   const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
+  const maxVolatility = config.screening.maxVolatility != null ? Number(config.screening.maxVolatility) : null;
+
+  // Pre-compute dynamic cooldown status for mints currently on static cooldown.
+  // This is async so must be done before the sync .filter() below.
+  const mintCooldownStatus = new Map(); // mint → { blocked, reason }
+  const dynamicCooldownEnabled = config.screening.dynamicCooldownEnabled ?? false;
+  if (dynamicCooldownEnabled) {
+    const mintsOnCooldown = [...new Set(
+      pools
+        .filter(p => p.base?.mint && isBaseMintOnCooldown(p.base.mint))
+        .map(p => p.base.mint)
+    )];
+    if (mintsOnCooldown.length > 0) {
+      await Promise.allSettled(
+        mintsOnCooldown.map(async (mint) => {
+          const lastClose = getLastCloseTimeForMint(mint);
+          const result = await checkDynamicCooldown(mint, lastClose, config.screening);
+          mintCooldownStatus.set(mint, result);
+          if (!result.blocked) {
+            log("screening", `Dynamic cooldown lifted for ${mint.slice(0, 8)}: ${result.reason}`);
+          }
+        })
+      );
+    }
+  }
+
+  function isMintCooldownBlocked(mint) {
+    if (!mint) return false;
+    if (dynamicCooldownEnabled && mintCooldownStatus.has(mint)) {
+      return mintCooldownStatus.get(mint).blocked;
+    }
+    return isBaseMintOnCooldown(mint);
+  }
+
+  function getMintCooldownReason(mint) {
+    if (dynamicCooldownEnabled && mintCooldownStatus.has(mint)) {
+      return mintCooldownStatus.get(mint).reason;
+    }
+    return "token cooldown active";
+  }
 
   const eligible = pools
     .filter((p) => {
@@ -576,6 +694,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} is unusable`);
         return false;
       }
+      if (maxVolatility != null && Number.isFinite(p.volatility) && p.volatility > maxVolatility) {
+        pushFilteredReason(filteredOut, p, `volatility ${p.volatility.toFixed(4)} above maxVolatility ${maxVolatility}`);
+        return false;
+      }
       if (occupiedPools.has(p.pool)) {
         pushFilteredReason(filteredOut, p, "already have an open position in this pool");
         return false;
@@ -589,9 +711,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, "pool cooldown active");
         return false;
       }
-      if (isBaseMintOnCooldown(p.base?.mint)) {
-        log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)})`);
-        pushFilteredReason(filteredOut, p, "token cooldown active");
+      if (isMintCooldownBlocked(p.base?.mint)) {
+        const reason = getMintCooldownReason(p.base?.mint);
+        log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)}) — ${reason}`);
+        pushFilteredReason(filteredOut, p, reason);
         return false;
       }
       return true;
