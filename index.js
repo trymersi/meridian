@@ -292,15 +292,33 @@ export async function runManagementCycle({ silent = false } = {}) {
       const cur = config.management.solMode ? "◎" : "$";
       const inRange = p.in_range ? "🟢 IN" : `🔴 OOR ${p.minutes_out_of_range ?? 0}m`;
 
-      const pnlSign = (p.pnl_pct ?? 0) >= 0 ? "+" : "";
-      const pnlIcon = (p.pnl_pct ?? 0) >= 0 ? "📈" : "📉";
-      const pnlStr = `${pnlSign}${p.pnl_pct ?? "?"}%${p.pnl_usd != null ? ` (${pnlSign}${cur}${Math.abs(p.pnl_usd).toFixed(2)})` : ""}`;
+      // ── Price PnL ──────────────────────────────────────────────
+      const pricePnlUsd = p.pnl_usd ?? 0;
+      const pricePnlPct = p.pnl_pct ?? 0;
+      const pnlSign = pricePnlPct >= 0 ? "+" : "";
+      const pnlIcon = pricePnlPct >= 0 ? "📈" : "📉";
       const peakStr = p.peak_pnl_pct != null ? ` | peak: ${p.peak_pnl_pct >= 0 ? "+" : ""}${p.peak_pnl_pct}%` : "";
 
-      const unclaimedStr = `${cur}${(p.unclaimed_fees_usd ?? 0).toFixed(4)}`;
-      const claimedStr = p.total_fees_claimed_usd != null && Number(p.total_fees_claimed_usd) > 0
-        ? ` | claimed: ${cur}${Number(p.total_fees_claimed_usd).toFixed(2)}`
-        : "";
+      // ── Entry vs current value ─────────────────────────────────
+      const currentVal = p.total_value_usd ?? 0;
+      const entryValUsd = currentVal - pricePnlUsd; // approx entry value in USD
+      const entryStr = p.amount_sol
+        ? `◎${p.amount_sol}${entryValUsd > 0 ? ` (~${cur}${entryValUsd.toFixed(2)})` : ""}`
+        : `${cur}${entryValUsd.toFixed(2)}`;
+
+      // ── Fees ───────────────────────────────────────────────────
+      const unclaimedFees = p.unclaimed_fees_usd ?? 0;
+      const claimedFees = Number(p.total_fees_claimed_usd) || 0;
+      const totalFees = unclaimedFees + claimedFees;
+      const feesStr = claimedFees > 0
+        ? `${cur}${unclaimedFees.toFixed(2)} pending + ${cur}${claimedFees.toFixed(2)} claimed = ${cur}${totalFees.toFixed(2)}`
+        : `${cur}${unclaimedFees.toFixed(2)} pending`;
+
+      // ── Net P&L (price change + all fees) ─────────────────────
+      const netPnlUsd = pricePnlUsd + totalFees;
+      const netSign = netPnlUsd >= 0 ? "+" : "";
+      const netIcon = netPnlUsd >= 0 ? "✅" : "🔻";
+      const netPct = entryValUsd > 0 ? ` (${netSign}${((netPnlUsd / entryValUsd) * 100).toFixed(2)}%)` : "";
 
       const metaParts = [
         p.fee_per_tvl_24h != null ? `yield: ${p.fee_per_tvl_24h}%` : null,
@@ -313,8 +331,10 @@ export async function runManagementCycle({ silent = false } = {}) {
 
       let line = [
         `${actionIcon} <b>${p.pair}</b> | Age: ${p.age_minutes ?? "?"}m | ${inRange}`,
-        `   ${pnlIcon} PnL: ${pnlStr}${peakStr} | Val: ${cur}${(p.total_value_usd ?? 0).toFixed(2)}${p.amount_sol ? ` (dep: ◎${p.amount_sol})` : ""}`,
-        `   💸 Unclaimed: ${unclaimedStr}${claimedStr}`,
+        `   📦 Entry: ${entryStr} → Now: ${cur}${currentVal.toFixed(2)}`,
+        `   ${pnlIcon} Price: ${pnlSign}${pricePnlPct}% (${pnlSign}${cur}${Math.abs(pricePnlUsd).toFixed(2)})${peakStr}`,
+        `   💸 Fees: ${feesStr}`,
+        `   ${netIcon} Net: ${netSign}${cur}${Math.abs(netPnlUsd).toFixed(2)}${netPct}`,
         metaParts ? `   📊 ${metaParts}` : null,
         `   → ${statusLabel}`,
       ].filter(Boolean).join("\n");
@@ -333,9 +353,15 @@ export async function runManagementCycle({ silent = false } = {}) {
 
     const cur = config.management.solMode ? "◎" : "$";
     const totalPnlUsd = positionData.reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
+    const totalClaimed = positionData.reduce((s, p) => s + (Number(p.total_fees_claimed_usd) || 0), 0);
+    const totalNetUsd = totalPnlUsd + totalUnclaimed + totalClaimed;
     const pnlSummarySign = totalPnlUsd >= 0 ? "+" : "";
+    const netSummarySign = totalNetUsd >= 0 ? "+" : "";
+    const netSummaryIcon = totalNetUsd >= 0 ? "✅" : "🔻";
     mgmtReport = reportLines.join("\n\n") +
-      `\n\n💼 <b>${positions.length} position(s)</b> | Val: ${cur}${totalValue.toFixed(2)} | PnL: ${pnlSummarySign}${cur}${Math.abs(totalPnlUsd).toFixed(2)} | Fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
+      `\n\n💼 <b>${positions.length} position(s)</b> | Val: ${cur}${totalValue.toFixed(2)}\n` +
+      `   📉 Price PnL: ${pnlSummarySign}${cur}${Math.abs(totalPnlUsd).toFixed(2)} | 💸 Fees: ${cur}${totalUnclaimed.toFixed(2)} pending${totalClaimed > 0 ? ` + ${cur}${totalClaimed.toFixed(2)} claimed` : ""}\n` +
+      `   ${netSummaryIcon} Net: ${netSummarySign}${cur}${Math.abs(totalNetUsd).toFixed(2)} | ${actionSummary}`;
 
     // ── Execute actions: direct for CLOSE/CLAIM, LLM only for INSTRUCTION ──
     const actionPositions = positionData.filter(p => {
