@@ -416,6 +416,8 @@ const toolMap = {
       gasReserve: ["management", "gasReserve"],
       positionSizePct: ["management", "positionSizePct"],
       minAgeBeforeYieldCheck: ["management", "minAgeBeforeYieldCheck"],
+      minAgeBeforeStopLoss: ["management", "minAgeBeforeStopLoss"],
+      stopLossCooldownHours: ["management", "stopLossCooldownHours"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],

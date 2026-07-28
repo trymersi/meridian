@@ -964,7 +964,16 @@ function getDeterministicCloseRule(position, managementConfig) {
     return false;
   })();
 
-  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= managementConfig.stopLossPct) {
+  // Same age guard as state.js updatePnlAndCheckExits — without it this rule fires as a
+  // fallback whenever that guard skips, closing brand-new positions on the Meteora
+  // early-PnL artifact.
+  const minAgeBeforeStopLoss = managementConfig.minAgeBeforeStopLoss ?? 5;
+  if (
+    !pnlSuspect &&
+    position.pnl_pct != null &&
+    position.pnl_pct <= managementConfig.stopLossPct &&
+    (position.age_minutes ?? 0) >= minAgeBeforeStopLoss
+  ) {
     return { action: "CLOSE", rule: 1, reason: "stop loss" };
   }
   if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= managementConfig.takeProfitPct) {
@@ -988,7 +997,7 @@ function getDeterministicCloseRule(position, managementConfig) {
   if (
     position.fee_per_tvl_24h != null &&
     position.fee_per_tvl_24h < managementConfig.minFeePerTvl24h &&
-    (position.age_minutes ?? 0) >= 60
+    (position.age_minutes ?? 0) >= (managementConfig.minAgeBeforeYieldCheck ?? 60)
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
   }
