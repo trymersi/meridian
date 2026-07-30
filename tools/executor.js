@@ -406,6 +406,7 @@ const toolMap = {
       opportunityPollLimit: ["opportunity", "limit"],
       opportunityMinScore: ["opportunity", "minScore"],
       opportunitySmartWalletBonus: ["opportunity", "smartWalletScoreBonus"],
+      opportunityCooldownMin: ["opportunity", "cooldownMin"],
       degenTargetVolRatio: ["opportunity", "targetVolRatio"],
       degenTargetLpCount: ["opportunity", "targetLpCount"],
       degenTargetFeeRatio: ["opportunity", "targetFeeRatio"],

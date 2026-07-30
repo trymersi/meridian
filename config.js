@@ -221,6 +221,10 @@ export const config = {
     enabled: u.opportunityPollEnabled ?? true,
     pollIntervalSec: Number(u.opportunityPollIntervalSec ?? 45),
     limit: Number(u.opportunityPollLimit ?? 10),
+    // Minimum gap between opportunity-triggered deploy decisions. This is the real
+    // deploy cadence — it overrides screeningIntervalMin, so leaving it low means the
+    // bot deploys far more often than the screening schedule suggests.
+    cooldownMin: Number(u.opportunityCooldownMin ?? 5),
     // Pre-gate: only trigger the full deploy decision when the best candidate's
     // Degen Score (0..100) clears this bar — avoids running screening every 45s.
     minScore: Number(u.opportunityMinScore ?? 40),

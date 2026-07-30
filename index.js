@@ -829,7 +829,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
   let opportunityPollInterval = null;
   if (config.opportunity.enabled) {
     const oppMs = Math.max(15, Number(config.opportunity.pollIntervalSec ?? 45)) * 1000;
-    const oppCooldownMs = 5 * 60 * 1000; // don't re-trigger the deploy LLM more than every 5m
+    // Configurable via opportunityCooldownMin. This value — not screeningIntervalMin —
+    // sets how often the bot can actually open a position.
+    const oppCooldownMs = Math.max(1, Number(config.opportunity.cooldownMin ?? 5)) * 60 * 1000;
     let _opportunityPollBusy = false;
     opportunityPollInterval = setInterval(async () => {
       if (_screeningBusy || _managementBusy || _opportunityPollBusy) return;
