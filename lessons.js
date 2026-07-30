@@ -335,7 +335,12 @@ export function evolveThresholds(perfData, config) {
   if (!perfData || perfData.length < (config?.darwin?.minSamples ?? 5)) return null;
 
   const winners = perfData.filter((p) => p.pnl_pct > 0);
-  const losers  = perfData.filter((p) => p.pnl_pct < -5);
+  // The loss band must sit ABOVE the stop-loss threshold, otherwise stop-loss exits fall
+  // outside it and the learning loop never sees its worst-performing category. A hardcoded
+  // -5 hid every exit when stopLossPct was tighter than that (e.g. -4).
+  const stopLossPct = Number(config?.management?.stopLossPct ?? -5);
+  const lossBand = Math.min(-2, stopLossPct + 1);
+  const losers  = perfData.filter((p) => p.pnl_pct <= lossBand);
 
   // Need at least some signal in both directions before adjusting
   const hasSignal = winners.length >= 2 || losers.length >= 2;

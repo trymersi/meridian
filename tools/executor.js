@@ -418,6 +418,7 @@ const toolMap = {
       minAgeBeforeYieldCheck: ["management", "minAgeBeforeYieldCheck"],
       minAgeBeforeStopLoss: ["management", "minAgeBeforeStopLoss"],
       stopLossCooldownHours: ["management", "stopLossCooldownHours"],
+      trailingProfitFloorPct: ["management", "trailingProfitFloorPct"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],
@@ -822,6 +823,15 @@ async function runSafetyChecks(name, args) {
 
       // Check position count limit + duplicate pool guard — force fresh scan to avoid stale cache
       const positions = await getMyPositions({ force: true });
+      // A failed fetch returns total_positions: 0 with an error field. Without this guard that
+      // reads as "no open positions" and lets the deploy through — breaching maxPositions and
+      // the duplicate-pool/duplicate-token guards during an API outage.
+      if (positions.error) {
+        return {
+          pass: false,
+          reason: `Cannot verify open positions (${positions.error}). Refusing deploy until position data is readable.`,
+        };
+      }
       if (positions.total_positions >= config.risk.maxPositions) {
         return {
           pass: false,

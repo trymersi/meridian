@@ -34,6 +34,7 @@ import { stageSignals } from "./signal-tracker.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
+import { recordTick } from "./tick-recorder.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -793,6 +794,10 @@ Summarize the current portfolio health, total fees earned, and performance of al
         let signal = null, reason = null, rule = "exit";
         if (exit) { signal = exit.action; reason = exit.reason; }
         else if (closeRule) { signal = `RULE_${closeRule.rule}`; reason = closeRule.reason; rule = closeRule.rule; }
+
+        // Telemetry for backtesting exit rules at the cadence they actually run at.
+        // Throttled per position; ticks carrying a signal are always written.
+        recordTick(p, { signal, peak: getTrackedPosition(p.position)?.peak_pnl_pct ?? null });
 
         // Require N consecutive confirming ticks before acting.
         const { fire } = registerExitSignal(p.position, signal, confirmTicks);

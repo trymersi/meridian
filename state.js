@@ -402,7 +402,11 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && pos.trailing_active) {
+  // Guard: trailing TP is for locking in GAINS. Once armed it stays armed, so without a
+  // profit floor a position that peaked at +3% and fell to -2% fires "trailing TP" and
+  // books a loss under a take-profit label. Downside is stop loss's job, not trailing's.
+  const trailingFloor = mgmtConfig.trailingProfitFloorPct ?? 0.5;
+  if (!pnl_pct_suspicious && pos.trailing_active && currentPnlPct != null && currentPnlPct >= trailingFloor) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
     if (dropFromPeak >= mgmtConfig.trailingDropPct) {
       return {
@@ -469,11 +473,32 @@ export function setLastBriefingDate() {
  * Marks any local open positions as closed if they are not in the on-chain list.
  */
 const SYNC_GRACE_MS = 5 * 60_000; // don't auto-close positions deployed < 5 min ago
+// An "all empty" reconcile is the dangerous case: the portfolio API can answer 200 with
+// zero pools during indexer lag, which would auto-close every live position and strand it
+// (no stop loss, no OOR monitoring). Require repeated empty observations before trusting it.
+const SYNC_EMPTY_CONFIRMATIONS = 3;
+let _syncEmptyStreak = 0;
 
 export function syncOpenPositions(active_addresses) {
   const state = load();
   const activeSet = new Set(active_addresses);
   let changed = false;
+
+  const openTracked = Object.values(state.positions).filter((p) => !p.closed);
+  if (activeSet.size === 0 && openTracked.length > 0) {
+    _syncEmptyStreak++;
+    if (_syncEmptyStreak < SYNC_EMPTY_CONFIRMATIONS) {
+      log(
+        "state_warn",
+        `Reconcile returned 0 on-chain positions while ${openTracked.length} tracked open ` +
+        `(${_syncEmptyStreak}/${SYNC_EMPTY_CONFIRMATIONS}) — treating as data outage, not closing`
+      );
+      return;
+    }
+    log("state_warn", `Reconcile empty ${_syncEmptyStreak}x in a row — proceeding with auto-close`);
+  } else {
+    _syncEmptyStreak = 0;
+  }
 
   for (const posId in state.positions) {
     const pos = state.positions[posId];
