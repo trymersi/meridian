@@ -209,7 +209,7 @@ For each position, evaluate the instruction condition against the live data:
 - If NOT met → HOLD, do nothing.
 
 After evaluating, write a brief one-line result per position.
-    `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel, 2048, {
+    `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel, config.llm.maxTokens, {
       onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
       onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
     });
@@ -688,7 +688,7 @@ STEPS:
    <short flat list of top candidate names and why they were skipped>
 IMPORTANT:
 - Keep the whole report compact and highly scannable for Telegram.
-      `, config.llm.maxSteps, [], "SCREENER", config.llm.screeningModel, 2048, {
+      `, config.llm.maxSteps, [], "SCREENER", config.llm.screeningModel, config.llm.maxTokens, {
         onToolStart: async ({ name }) => {
           if (name === "deploy_position") deployAttempted = true;
           await liveMessage?.toolStart(name);
