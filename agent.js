@@ -184,6 +184,10 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   const mustUseRealTool = shouldRequireRealToolUse(goal, agentType, interactive);
   let sawToolCall = false;
   let noToolRetryCount = 0;
+  // A model returning empty responses will keep doing so — bail out instead of
+  // spending the whole step budget (and the API calls) rediscovering that.
+  let emptyResponseCount = 0;
+  const MAX_EMPTY_RESPONSES = 3;
   // Stays true for the whole run once a thinking-mode provider rejects tool_choice
   let omitToolChoice = false;
 
@@ -256,6 +260,18 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         throw new Error(`API returned no choices: ${response.error?.message || JSON.stringify(response)}`);
       }
       const msg = response.choices[0].message;
+      const finishReason = response.choices[0].finish_reason;
+      // Reasoning models spend the output budget thinking before they emit anything.
+      // When maxOutputTokens is too small for the prompt, the budget is exhausted mid-
+      // thought: content comes back empty, no tool_calls, finish_reason "length". That
+      // is indistinguishable from a dead model unless we say so explicitly.
+      if (finishReason === "length" && !msg.tool_calls?.length) {
+        const reasoningTokens = response.usage?.completion_tokens_details?.reasoning_tokens;
+        log("agent_error",
+          `Response truncated (finish_reason=length) with no tool call` +
+          (reasoningTokens ? ` — ${reasoningTokens} tokens went to reasoning` : "") +
+          `. maxOutputTokens=${maxOutputTokens || config.llm.maxTokens} is too small for this prompt; raise it.`);
+      }
       const invalidToolArgErrors = new Map();
       // Keep tool-call history API-valid, but never execute unrecoverable args.
       if (msg.tool_calls) {
@@ -281,12 +297,31 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       // If the model didn't call any tools, it's done
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
+        // Reasoning models (DeepSeek R-series, "thinking mode") put their output in
+        // reasoning_content and leave content null. Without this the loop below sees an
+        // empty message every step and burns the entire step budget doing nothing.
+        if (!msg.content && (msg.reasoning_content || msg.reasoning)) {
+          msg.content = String(msg.reasoning_content || msg.reasoning);
+          log("agent", "Recovered content from reasoning_content (thinking-mode model)");
+        }
         // Hermes sometimes returns null content — pop the empty message and retry once
         if (!msg.content) {
           messages.pop(); // remove the empty assistant message
-          log("agent", "Empty response, retrying...");
+          emptyResponseCount += 1;
+          // Escape hatch: a model that returns nothing will keep returning nothing.
+          // Retrying to maxSteps wastes the whole cycle and a lot of API calls, and
+          // hides the real fault (wrong model / provider in thinking mode).
+          if (emptyResponseCount >= MAX_EMPTY_RESPONSES) {
+            log("agent_error", `Model returned ${emptyResponseCount} empty responses in a row — aborting cycle. Check that "${usedModel}" supports tool calling.`);
+            return {
+              content: `Model "${usedModel}" returned only empty responses — it is likely a reasoning/thinking model that does not emit tool calls. Switch screeningModel/managementModel to a tool-calling model.`,
+              userMessage: goal,
+            };
+          }
+          log("agent", `Empty response, retrying... (${emptyResponseCount}/${MAX_EMPTY_RESPONSES})`);
           continue;
         }
+        emptyResponseCount = 0;
         if (mustUseRealTool && !sawToolCall) {
           noToolRetryCount += 1;
           messages.pop();
