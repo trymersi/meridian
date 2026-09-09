@@ -157,13 +157,28 @@ export function recalculateWeights(perfData, cfg = {}) {
   const topQuartile    = new Set(ranked.slice(0, q1End).map(([name]) => name));
   const bottomQuartile = new Set(ranked.slice(q3Start).map(([name]) => name));
 
+  // A quartile split always names a top and a bottom 25%, even when every signal
+  // has effectively the same lift. Without a significance floor this recalc adjusts
+  // weights on pure noise every time it runs — at recalcEvery=5 that is ~170 runs
+  // over 848 closes, and 1.05^19 / 0.95^24 pin weights to the ceiling/floor long
+  // before then. Require the signal to actually separate winners from losers.
+  const minLift = darwin.minLift ?? 0.05;
+  const spread = ranked.length > 1 ? ranked[0][1] - ranked[ranked.length - 1][1] : 0;
+  if (spread < minLift) {
+    log("signal_weights", `Lift spread ${spread.toFixed(4)} < minLift ${minLift} — signals indistinguishable this window, skipping recalc`);
+    return { changes: [], weights };
+  }
+
   // Apply boosts and decays
   const changes = [];
   for (const [signal, lift] of ranked) {
     const prev = weights[signal];
     let next = prev;
 
-    if (topQuartile.has(signal)) {
+    // Only move a weight when that individual signal clears the significance floor.
+    if (Math.abs(lift) < minLift) {
+      // Indistinguishable from noise — leave it alone.
+    } else if (topQuartile.has(signal)) {
       next = Math.min(prev * boostFactor, weightCeiling);
     } else if (bottomQuartile.has(signal)) {
       next = Math.max(prev * decayFactor, weightFloor);

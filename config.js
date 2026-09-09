@@ -178,6 +178,9 @@ export const config = {
     weightFloor:    u.darwinFloor       ?? 0.3,
     weightCeiling:  u.darwinCeiling     ?? 2.5,
     minSamples:     u.darwinMinSamples  ?? 10,
+    // Minimum predictive lift before a signal's weight is adjusted. Guards against
+    // the quartile split moving weights on noise every recalc.
+    minLift:        u.darwinMinLift     ?? 0.05,
   },
 
   // ─── Common Token Mints ────────────────
