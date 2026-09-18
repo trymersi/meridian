@@ -156,6 +156,14 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (pool?.base_token_has_high_single_ownership === true) return "base token has high single ownership";
   if (pool?.pool_type && pool.pool_type !== "dlmm") return `pool_type ${pool.pool_type} is not dlmm`;
 
+  // This agent only ever deposits SOL (runSafetyChecks forces amount_x=0), so a pool whose
+  // quote side is anything else cannot be funded — the deposit transfer fails with
+  // "insufficient funds" at simulation time and burns the cycle's one deploy attempt.
+  const quoteMint = quote?.address;
+  if (quoteMint && quoteMint !== config.tokens.SOL) {
+    return `quote token ${quote?.symbol || quoteMint.slice(0, 8)} is not SOL — wallet funds SOL only`;
+  }
+
   if (mcap == null || mcap < s.minMcap) return `mcap ${mcap ?? "unknown"} below minMcap ${s.minMcap}`;
   if (mcap > s.maxMcap) return `mcap ${mcap} above maxMcap ${s.maxMcap}`;
   if (holders == null || holders < s.minHolders) return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;

@@ -93,6 +93,19 @@ async function validateDeployPoolThresholds(args) {
     };
   }
 
+  // Hard gate: the deploy path below forces amount_x=0 (SOL-only deposit), so the pool's
+  // quote side must be SOL. A USDC-quoted pool passes every other threshold but fails on
+  // chain with "insufficient funds" — and that failed attempt consumes the session's single
+  // allowed deploy, blocking the valid fallback candidate.
+  const quoteMint = detail?.token_y?.address ?? detail?.quote_token?.address ?? null;
+  if (quoteMint && quoteMint !== config.tokens.SOL) {
+    const sym = detail?.token_y?.symbol ?? detail?.quote_token?.symbol ?? quoteMint.slice(0, 8);
+    return {
+      pass: false,
+      reason: `Pool is quoted in ${sym}, not SOL. This agent deposits SOL only — pick a SOL-quoted pool.`,
+    };
+  }
+
   const tvl = poolDetailTvl(detail);
   const minTvl = numberOrNull(config.screening.minTvl);
   const maxTvl = numberOrNull(config.screening.maxTvl);
